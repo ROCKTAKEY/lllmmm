@@ -25,6 +25,7 @@ struct App {
     client: reqwest::Client,
 }
 pub fn router(config: Arc<Config>, manager: Manager) -> anyhow::Result<Router> {
+    let catalog = crate::model_catalog::router(config.clone());
     let management = crate::management::router(config.clone(), manager.clone());
     let app = App {
         config: config.clone(),
@@ -45,7 +46,8 @@ pub fn router(config: Arc<Config>, manager: Manager) -> anyhow::Result<Router> {
         })
         .layer(DefaultBodyLimit::max(config.max_body_bytes))
         .with_state(app)
-        .merge(management))
+        .merge(management)
+        .merge(catalog))
 }
 fn json_payload(body: Result<Json<Value>, JsonRejection>) -> Result<Value, ApiError> {
     body.map(|Json(value)| value)

@@ -169,6 +169,51 @@ impl Drop for Server {
 }
 
 #[tokio::test]
+async fn codex_catalog_lists_configured_models_without_loading_them() {
+    let server = Server::start("").await;
+    let response = server
+        .client
+        .get(format!(
+            "{}/codex/models?client_version=0.134.0",
+            server.url
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    assert_eq!(response.headers()["content-type"], "application/json");
+    let catalog: Value = response.json().await.unwrap();
+    let models = catalog["models"].as_array().unwrap();
+    assert_eq!(models.len(), 2);
+    for (model, id) in models.iter().zip(["llama", "strata"]) {
+        assert_eq!(model["slug"], id);
+        assert_eq!(model["display_name"], id);
+        assert_eq!(model["visibility"], "list");
+        assert_eq!(model["supported_in_api"], true);
+        assert_eq!(model["shell_type"], "shell_command");
+        assert_eq!(model["supported_reasoning_levels"], json!([]));
+        assert_eq!(model["supports_reasoning_summaries"], false);
+        assert_eq!(model["support_verbosity"], false);
+        assert_eq!(model["supports_parallel_tool_calls"], false);
+        assert_eq!(model["input_modalities"], json!(["text"]));
+        assert_eq!(model["experimental_supported_tools"], json!([]));
+        assert!(
+            model["base_instructions"]
+                .as_str()
+                .is_some_and(|s| !s.is_empty())
+        );
+        assert!(model["priority"].is_i64());
+        assert_eq!(
+            model["truncation_policy"],
+            json!({"mode":"bytes", "limit":10000})
+        );
+    }
+    assert_eq!(models[0]["context_window"], 32);
+    assert!(models[1].get("context_window").is_none());
+    assert!(server.events().is_empty());
+}
+
+#[tokio::test]
 async fn native_protocols_switch_reuse_stream_and_unload_process_groups() {
     let server = Server::start("").await;
     let models: Value = server

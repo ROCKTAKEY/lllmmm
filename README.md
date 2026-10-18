@@ -94,7 +94,11 @@ codex --profile local-strata-iq2
 codex --profile local-ornith
 ```
 
-`CODEX_HOME` を設定している場合は、`~/.codex/` の代わりにそのディレクトリを使います。プロファイルの `model` はlllmmmのモデルIDに、`model_context_window` はモデルのコンテキスト設定に合わせてください。ポートを変更した場合は、プロバイダー設定の `base_url` も合わせます。
+`CODEX_HOME` を設定している場合は、`~/.codex/` の代わりにそのディレクトリを使います。プロファイルの `model` はlllmmmのモデルIDに、`model_context_window` はモデルのコンテキスト設定に合わせてください。ポートを変更した場合は、プロバイダー設定の `base_url` と `model_catalog_url` も合わせます。
+
+`model_catalog_url` に `http://127.0.0.1:19100/codex/models` を指定すると、登録モデルをCodexのモデル選択画面から選べます。このURLは、Codexが選択候補と能力情報を読み込むための専用JSONを返します。設定項目の詳細は[Codexの設定リファレンス](https://developers.openai.com/codex/config-reference/#model_providersidmodel_catalog_url)を参照してください。
+
+カタログはモデルをロードせずに生成します。llama.cppのコンテキスト長には `context_size` を使用します。Strataのコンテキスト長はエンジンの引数に依存するため、Codexプロファイルの `model_context_window` に指定してください。カタログではテキスト入力と通常のツール呼び出しを前提とし、推論レベルの選択肢・推論要約・verbosity・並列ツール呼び出しは宣言しません。
 
 詳細は[Codexのプロファイル設定](https://developers.openai.com/codex/config-advanced#profiles)を参照してください。
 
@@ -103,6 +107,9 @@ codex --profile local-ornith
 ```sh
 # 登録モデルの一覧
 curl http://127.0.0.1:19100/v1/models
+
+# Codex用のモデルカタログ
+curl http://127.0.0.1:19100/codex/models
 
 # 現在の状態
 curl http://127.0.0.1:19100/admin/status
