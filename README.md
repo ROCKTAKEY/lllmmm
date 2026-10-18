@@ -6,13 +6,22 @@ llama.cppとStrataのローカルLLMを、1つの接続先から使うためのL
 
 LinuxとGuix、および使用するモデルファイルを用意してください。起動スクリプトがビルド環境とllama.cppをGuixで用意します。Strataを使う場合は、Strata 0.1.39とモデルのpack・tokenizerなども準備してください。
 
-リポジトリのディレクトリで、初回に設定例をコピーします。既に `config/` がある場合は、その設定を編集してください。
+バイナリを直接起動すると、設定ファイルは `$XDG_CONFIG_HOME/lllmmm/lllmmm.toml` から読み込みます。`XDG_CONFIG_HOME` が未設定・空・相対パスの場合は `~/.config/lllmmm/lllmmm.toml` を使います。
+
+リポジトリのディレクトリで、初回に設定例を配置します。既に設定がある場合は、そのファイルを編集してください。
 
 ```sh
-cp -r examples config
+case "${XDG_CONFIG_HOME:-}" in
+    /*) config_dir="$XDG_CONFIG_HOME/lllmmm" ;;
+    *) config_dir="$HOME/.config/lllmmm" ;;
+esac
+mkdir -p "$config_dir"
+cp -i examples/lllmmm.toml "$config_dir/lllmmm.toml"
+# Strataを使う場合
+cp -ri examples/strata "$config_dir/"
 ```
 
-`config/lllmmm.toml` で、使用するモデルのファイルパスや実行ファイルを指定します。不要な `[[models]]` ブロックは削除してください。Strataを使う場合は `config/strata/*.json` のパスも編集します。
+`lllmmm.toml` で、使用するモデルのファイルパスや実行ファイルを指定します。不要な `[[models]]` ブロックは削除してください。Strataを使う場合は `strata/*.json` のパスも編集します。
 
 このREADMEとCodex設定例では、接続先のポートを `19100` とします。コピーした設定の `listen` を次の値にしてください。
 
@@ -24,15 +33,17 @@ listen = "127.0.0.1:19100"
 
 ```sh
 # 設定を確認
-./scripts/run.sh config/lllmmm.toml check
+./scripts/run.sh "$config_dir/lllmmm.toml" check
 
 # ビルドして起動
-./scripts/run.sh
+./scripts/run.sh "$config_dir/lllmmm.toml"
 ```
 
 接続先は `http://127.0.0.1:19100/v1` です。最初の推論要求ではモデルのロード時間がかかります。終了は **Ctrl-C**、設定変更の反映は再起動で行います。
 
-別の設定ファイルを使う場合は、`./scripts/run.sh /path/to/lllmmm.toml` と指定します。
+ビルド済みのバイナリは `lllmmm` で起動し、`lllmmm check` で設定を確認できます。設定ファイルを明示する場合は `--config /path/to/lllmmm.toml` を指定します。
+
+`run.sh` は、引数なしではリポジトリ内の `config/lllmmm.toml` を使います。XDG配下など別の設定を使う場合は、上の例のようにパスを指定してください。
 
 ## モデルの設定
 
