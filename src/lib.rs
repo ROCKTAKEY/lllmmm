@@ -1,4 +1,6 @@
+mod http_error;
 pub mod inference;
+mod management;
 pub mod models;
 
 pub async fn serve(config: std::sync::Arc<models::config::Config>) -> anyhow::Result<()> {

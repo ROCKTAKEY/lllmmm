@@ -1,3 +1,4 @@
+use crate::http_error::ApiError;
 use crate::models::{
     config::Config,
     lifecycle::{LifecycleError, Manager},
@@ -6,7 +7,7 @@ use crate::models::{
 use axum::{
     Json, Router,
     body::Body,
-    extract::{DefaultBodyLimit, Path, State, rejection::JsonRejection},
+    extract::{DefaultBodyLimit, State, rejection::JsonRejection},
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
     routing::{get, post},
@@ -24,6 +25,7 @@ struct App {
     client: reqwest::Client,
 }
 pub fn router(config: Arc<Config>, manager: Manager) -> anyhow::Result<Router> {
+    let management = crate::management::router(config.clone(), manager.clone());
     let app = App {
         config: config.clone(),
         manager,
@@ -38,60 +40,12 @@ pub fn router(config: Arc<Config>, manager: Manager) -> anyhow::Result<Router> {
         .route("/v1/models", get(models))
         .route("/v1/responses", post(responses))
         .route("/v1/chat/completions", post(chat))
-        .route("/admin/status", get(status))
-        .route("/admin/models/{model}/load", post(load))
-        .route("/admin/unload", post(unload))
         .fallback(|| async {
             ApiError::new(StatusCode::NOT_FOUND, "not_found", "unknown endpoint")
         })
         .layer(DefaultBodyLimit::max(config.max_body_bytes))
-        .with_state(app))
-}
-struct ApiError {
-    status: StatusCode,
-    code: &'static str,
-    message: String,
-}
-impl ApiError {
-    fn new(status: StatusCode, code: &'static str, message: impl Into<String>) -> Self {
-        Self {
-            status,
-            code,
-            message: message.into(),
-        }
-    }
-    fn timeout() -> Self {
-        Self::new(
-            StatusCode::GATEWAY_TIMEOUT,
-            "request_timeout",
-            "request deadline exceeded",
-        )
-    }
-}
-impl From<LifecycleError> for ApiError {
-    fn from(error: LifecycleError) -> Self {
-        Self::new(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "backend_unavailable",
-            error.to_string(),
-        )
-    }
-}
-impl IntoResponse for ApiError {
-    fn into_response(self) -> Response {
-        let kind = if self.status.is_client_error() {
-            "invalid_request_error"
-        } else {
-            "server_error"
-        };
-        (
-            self.status,
-            Json(
-                json!({"error":{"message":self.message,"type":kind,"code":self.code,"param":null}}),
-            ),
-        )
-            .into_response()
-    }
+        .with_state(app)
+        .merge(management))
 }
 fn json_payload(body: Result<Json<Value>, JsonRejection>) -> Result<Value, ApiError> {
     body.map(|Json(value)| value)
@@ -114,29 +68,6 @@ async fn models(State(app): State<App>) -> Json<Value> {
     Json(
         json!({"object":"list","data": app.config.model_ids().map(|id| json!({"id":id,"object":"model","created":0,"owned_by":"lllmmm"})).collect::<Vec<_>>()}),
     )
-}
-async fn status(State(app): State<App>) -> Json<Value> {
-    Json(json!({"model":app.manager.status()}))
-}
-async fn load(State(app): State<App>, Path(name): Path<String>) -> Result<Json<Value>, ApiError> {
-    let model = app.model(&name)?;
-    let lease = timeout_at(
-        Instant::now() + app.config.request_timeout,
-        app.manager.acquire(model),
-    )
-    .await
-    .map_err(|_| ApiError::timeout())??;
-    drop(lease);
-    Ok(Json(json!({"model":name,"status":"loaded"})))
-}
-async fn unload(State(app): State<App>) -> Result<Json<Value>, ApiError> {
-    timeout_at(
-        Instant::now() + app.config.request_timeout,
-        app.manager.unload(),
-    )
-    .await
-    .map_err(|_| ApiError::timeout())??;
-    Ok(Json(json!({"status":"unloaded"})))
 }
 async fn responses(
     State(app): State<App>,

@@ -26,6 +26,9 @@ fn port() -> u16 {
 }
 impl Server {
     async fn start(extra: &str) -> Self {
+        Self::start_with_idle(extra, 1).await
+    }
+    async fn start_with_idle(extra: &str, idle: u64) -> Self {
         let dir = tempfile::tempdir().unwrap();
         fs::write(dir.path().join("fixture.gguf"), "fixture").unwrap();
         fs::write(
@@ -54,7 +57,7 @@ impl Server {
         let config = format!(
             r#"
 listen = "127.0.0.1:{listen}"
-idle_timeout_secs = 1
+idle_timeout_secs = {idle}
 startup_timeout_secs = 2
 request_timeout_secs = 5
 shutdown_timeout_secs = 1
@@ -389,4 +392,241 @@ async fn stream_deadline_does_not_fabricate_success_or_pin_the_model() {
         .post("/v1/responses", json!({"model":"strata","input":"next"}))
         .await;
     assert_eq!(next.status(), 200);
+}
+
+#[tokio::test]
+async fn management_screen_reports_models_and_controls_their_lifecycle() {
+    let server = Server::start("").await;
+    let page = server
+        .client
+        .get(format!("{}/", server.url))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(page.status(), 200);
+    assert!(
+        page.headers()["content-type"]
+            .to_str()
+            .unwrap()
+            .contains("text/html")
+    );
+    let html = page.text().await.unwrap();
+    assert!(html.contains("モデル管理"));
+    assert!(html.contains("class=\"icon\""));
+    assert!(html.contains("aria-hidden=\"true\" focusable=\"false\""));
+    assert!(html.contains("今すぐ更新"));
+    assert!(html.contains("llama"));
+    assert!(html.contains("hx-post=\"/admin/ui/models/llama/load\""));
+    let fragment = server
+        .client
+        .get(format!("{}/admin/ui/dashboard", server.url))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(fragment.status(), 200);
+    assert!(fragment.text().await.unwrap().contains("DRAM"));
+    for path in ["/admin/app.js", "/admin/style.css"] {
+        assert_eq!(
+            server
+                .client
+                .get(format!("{}{path}", server.url))
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            200
+        );
+    }
+    let snapshot: Value = server
+        .client
+        .get(format!("{}/admin/overview", server.url))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(snapshot["status"]["state"], "unloaded");
+    assert_eq!(snapshot["queue"]["waiting"], 0);
+    assert_eq!(snapshot["queue"]["capacity"], 2);
+    assert!(snapshot["resources"].is_object());
+    assert!(snapshot["resources"].get("memory").is_some());
+    assert!(snapshot["resources"].get("gpus").is_some());
+    assert_eq!(snapshot["models"][0]["id"], "llama");
+    assert_eq!(snapshot["models"][0]["backend"], "llama_cpp");
+    assert_eq!(snapshot["models"][1]["backend"], "strata");
+    assert!(!snapshot.to_string().contains("fixture.gguf"));
+    assert!(server.events().is_empty());
+    let blocked = server
+        .client
+        .post(format!("{}/admin/models/llama/load", server.url))
+        .header("origin", "https://unrelated.example")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(blocked.status(), 403);
+    assert!(server.events().is_empty());
+    let loaded = server
+        .client
+        .post(format!("{}/admin/models/llama/load", server.url))
+        .header("origin", &server.url)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(loaded.status(), 200);
+    let snapshot: Value = server
+        .client
+        .get(format!("{}/admin/overview", server.url))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(snapshot["status"]["model"], "llama");
+    assert_eq!(snapshot["status"]["state"], "ready");
+    assert_eq!(server.post("/admin/unload", json!({})).await.status(), 200);
+    let snapshot: Value = server
+        .client
+        .get(format!("{}/admin/overview", server.url))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(snapshot["status"]["state"], "unloaded");
+}
+
+#[tokio::test]
+async fn monitoring_detects_a_backend_exit_while_idle() {
+    let server = Server::start_with_idle("", 60).await;
+    assert_eq!(
+        server
+            .post("/admin/models/llama/load", json!({}))
+            .await
+            .status(),
+        200
+    );
+    let pid = server.events()[0]["pid"].as_i64().unwrap() as i32;
+    kill(Pid::from_raw(pid), Signal::SIGKILL).unwrap();
+    timeout(Duration::from_secs(5), async {
+        loop {
+            let snapshot: Value = server
+                .client
+                .get(format!("{}/admin/overview", server.url))
+                .send()
+                .await
+                .unwrap()
+                .json()
+                .await
+                .unwrap();
+            if snapshot["status"]["state"] == "failed" {
+                break;
+            }
+            sleep(Duration::from_millis(30)).await;
+        }
+    })
+    .await
+    .expect("monitor must report the exited backend before the idle timeout");
+    server.assert_processes_stopped();
+}
+
+#[tokio::test]
+async fn management_queue_waits_for_stream_and_remains_observable() {
+    let server = Server::start("").await;
+    let mut stream = server
+        .post(
+            "/v1/responses",
+            json!({"model":"llama", "stream":true, "delay":1}),
+        )
+        .await;
+    stream.chunk().await.unwrap();
+    let client = server.client.clone();
+    let url = format!("{}/admin/unload", server.url);
+    let unload = tokio::spawn(async move { client.post(url).send().await.unwrap() });
+    timeout(Duration::from_secs(1), async {
+        loop {
+            let snapshot: Value = server
+                .client
+                .get(format!("{}/admin/overview", server.url))
+                .send()
+                .await
+                .unwrap()
+                .json()
+                .await
+                .unwrap();
+            if snapshot["queue"]["waiting"] == 1 {
+                assert_eq!(snapshot["status"]["state"], "busy");
+                break;
+            }
+            sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    assert!(!unload.is_finished());
+    stream.text().await.unwrap();
+    assert_eq!(unload.await.unwrap().status(), 200);
+}
+
+#[tokio::test]
+async fn management_html_actions_report_results_and_reject_foreign_origins() {
+    let server = Server::start("").await;
+    let rejected = server
+        .client
+        .post(format!("{}/admin/ui/models/llama/load", server.url))
+        .header("origin", "https://unrelated.example")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(rejected.status(), 403);
+    assert!(server.events().is_empty());
+    let loaded = server
+        .client
+        .post(format!("{}/admin/ui/models/llama/load", server.url))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(loaded.status(), 200);
+    assert_eq!(loaded.headers()["hx-trigger"], "refresh");
+    assert!(
+        loaded
+            .text()
+            .await
+            .unwrap()
+            .contains("ロードが完了しました")
+    );
+    let html = server
+        .client
+        .get(format!("{}/admin/ui/dashboard", server.url))
+        .send()
+        .await
+        .unwrap()
+        .text()
+        .await
+        .unwrap();
+    assert!(html.contains("ロード済み"));
+    let missing = server
+        .client
+        .post(format!("{}/admin/ui/models/missing/load", server.url))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(missing.status(), 404);
+    assert!(missing.text().await.unwrap().contains("操作に失敗しました"));
+    let unloaded = server
+        .client
+        .post(format!("{}/admin/ui/unload", server.url))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(unloaded.status(), 200);
+    assert!(
+        unloaded
+            .text()
+            .await
+            .unwrap()
+            .contains("アンロードが完了しました")
+    );
 }

@@ -8,6 +8,7 @@ license = "MIT"
 
 [dependencies]
 anyhow = "1"
+askama = "0.14"
 async-trait = "0.1"
 async-stream = "0.3"
 axum = "0.8"

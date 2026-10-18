@@ -95,6 +95,9 @@ impl Manager {
         self.send(Command::Unload { reply })?;
         received.await.map_err(|_| LifecycleError::Stopped)?
     }
+    pub fn waiting_requests(&self) -> usize {
+        self.commands.max_capacity() - self.commands.capacity()
+    }
     pub fn status(&self) -> Status {
         self.status.borrow().clone()
     }
@@ -159,16 +162,33 @@ async fn run(
     shutdown: CancellationToken,
     idle: Duration,
 ) {
-    let mut resident = None;
+    let mut resident: Option<Resident> = None;
+    let mut idle_deadline = tokio::time::Instant::now() + idle;
+    let mut health_poll = tokio::time::interval(Duration::from_secs(1));
+    health_poll.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     loop {
         let command = tokio::select! {
             biased;
             _ = shutdown.cancelled() => break,
             command = commands.recv() => match command { Some(c) => c, None => break },
-            _ = tokio::time::sleep(idle), if resident.is_some() => {
+            _ = health_poll.tick(), if resident.is_some() => {
+                if let Some(active) = resident.as_mut()
+                    && !active.session.is_alive()
+                {
+                    let model = active.model.id.as_str().to_owned();
+                    let message = match unload(&mut resident, &status).await {
+                        Ok(()) => format!("backend {model} exited unexpectedly"),
+                        Err(error) => format!("backend {model} exited; cleanup failed: {error}"),
+                    };
+                    status.send_replace(Status::Failed { message });
+                }
+                continue;
+            }
+            _ = tokio::time::sleep_until(idle_deadline), if resident.is_some() => {
                 if let Err(error) = unload(&mut resident, &status).await {
                     status.send_replace(Status::Failed { message: error.to_string() });
                 }
+                idle_deadline = tokio::time::Instant::now() + idle;
                 continue;
             }
         };
@@ -215,6 +235,7 @@ async fn run(
                 let _ = reply.send(result);
             }
         }
+        idle_deadline = tokio::time::Instant::now() + idle;
     }
     commands.close();
     if let Err(error) = unload(&mut resident, &status).await {

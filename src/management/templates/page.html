@@ -1,0 +1,27 @@
+{% import "icons.html" as icons %}
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="htmx-config" content='{"allowEval":false,"allowScriptTags":false,"includeIndicatorStyles":false,"selfRequestsOnly":true,"historyCacheSize":0,"timeout":5000}'>
+  <title>モデル管理 | lllmmm</title>
+  <link rel="stylesheet" href="/admin/style.css">
+  <script src="/admin/theme.js"></script>
+  <script src="/admin/htmx.js" defer></script>
+  <script src="/admin/app.js" defer></script>
+</head>
+<body>
+  <a class="skip" href="#main">本文へ移動</a>
+  <header class="header"><div class="header-inner"><a class="brand" href="/">lllmmm<span>ローカルモデル管理</span></a><label class="theme-control">{% call icons::icon("theme") %}配色 <select id="theme"><option value="system">OS設定</option><option value="light">ライト</option><option value="dark">ダーク</option></select></label><span id="connection" class="badge good" role="status">接続中</span></div></header>
+  <main id="main" tabindex="-1">
+    <div class="page-heading"><div><p class="eyebrow">管理コンソール</p><h1>モデル管理</h1><p class="description">稼働状況を確認し、使用するモデルを切り替えます。</p></div><div class="refresh-controls"><label><input id="auto-refresh" type="checkbox" checked>2秒ごとに更新</label><button id="refresh" class="secondary" type="button">{% call icons::icon("refresh") %}今すぐ更新</button><span id="updated" class="muted">最終取得：—</span></div></div>
+    <noscript><p class="notice error">管理画面の利用にはJavaScriptを有効にしてください。</p></noscript>
+    <div id="connection-error" class="notice error" role="alert" hidden></div>
+    <div id="operation" class="notice info" role="status" aria-live="polite" hidden></div>
+    <div id="dashboard" hx-get="/admin/ui/dashboard" hx-trigger="every 2s, refresh from:body" hx-swap="innerHTML" hx-sync="this:drop">{{ dashboard|safe }}</div>
+    <section aria-labelledby="events-heading"><h2 id="events-heading">{% call icons::icon("history") %}画面で確認した履歴</h2><p class="muted">この画面を開いてからの状態変化と操作結果を、最新20件まで表示します。</p><ol id="events" class="events"><li class="muted">状態変化や操作結果がここに表示されます。</li></ol></section>
+  </main>
+  <footer><span>lllmmm <span id="version">v{{ version }}</span></span><span>ローカルLLM 管理コンソール</span></footer>
+</body>
+</html>
