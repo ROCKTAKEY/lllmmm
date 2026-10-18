@@ -1,0 +1,6 @@
+model_provider = "lllmmm"
+model = "qwen3.8-flash-next-iq2_xs"
+model_context_window = 131072
+model_reasoning_effort = "low"
+model_supports_reasoning_summaries = false
+web_search = "disabled"

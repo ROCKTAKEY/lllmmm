@@ -1,0 +1,32 @@
+{
+  "exe": "/opt/strata/engine/strata",
+  "args": [
+    "--pack",
+    "/home/you/models/strata/packs/coder-iq1_m",
+    "--native",
+    "/home/you/models/strata/models/coder-IQ1_M/Qwen3.8-Flash-Next-GSQ-RCO-IQ1_M-00001-of-00002.gguf",
+    "--ple-gguf",
+    "/home/you/models/strata/models/coder-IQ1_M/Qwen3.8-Flash-Next-GSQ-RCO-IQ1_M-00002-of-00002.gguf",
+    "--expert-profile",
+    "/home/you/models/strata/profiles/expert-profile-coder.bin",
+    "--expert-cache",
+    "auto",
+    "--prefill",
+    "auto",
+    "--spec",
+    "4",
+    "--spec-min-p",
+    "0.5",
+    "--mtp",
+    "/home/you/models/strata/mtp/rt",
+    "--max-context",
+    "131072",
+    "--kv",
+    "int8",
+    "--kv-resident",
+    "32768"
+  ],
+  "cwd": ".",
+  "tokenizer": "/home/you/models/strata/packs/coder-iq1_m/tokenizer",
+  "backend": "hip"
+}

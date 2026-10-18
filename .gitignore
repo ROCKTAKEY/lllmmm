@@ -1,0 +1,5 @@
+/target/
+/.guix-shell/
+/.local/
+/config/
+/lllmmm.toml

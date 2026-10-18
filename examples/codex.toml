@@ -1,0 +1,7 @@
+[model_providers.lllmmm]
+name = "Local models via lllmmm"
+base_url = "http://127.0.0.1:19100/v1"
+wire_api = "responses"
+requires_openai_auth = false
+supports_websockets = false
+stream_idle_timeout_ms = 1800000
