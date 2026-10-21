@@ -51,6 +51,14 @@ pub(crate) enum Backend {
 }
 
 impl Model {
+    pub(crate) fn context_size(&self) -> NonZeroUsize {
+        match &self.backend {
+            Backend::LlamaCpp { context_size, .. } | Backend::Strata { context_size, .. } => {
+                *context_size
+            }
+        }
+    }
+
     pub fn id(&self) -> &ModelId {
         &self.id
     }

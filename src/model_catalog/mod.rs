@@ -1,6 +1,6 @@
 use crate::models::{
     config::Config,
-    model::{Backend, Model, ModelId},
+    model::{Model, ModelId},
 };
 use axum::{Json, Router, extract::State, routing::get};
 use serde::Serialize;
@@ -75,11 +75,7 @@ impl From<&Model> for Entry {
             truncation_policy: TruncationPolicy::Bytes(10000),
             experimental_supported_tools: [],
             input_modalities: ["text"],
-            context_window: match &model.backend {
-                Backend::LlamaCpp { context_size, .. } | Backend::Strata { context_size, .. } => {
-                    *context_size
-                }
-            },
+            context_window: model.context_size(),
         }
     }
 }

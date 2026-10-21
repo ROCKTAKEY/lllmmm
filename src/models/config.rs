@@ -82,6 +82,26 @@ fn resolve(base: &Path, path: &Path) -> PathBuf {
     }
 }
 
+fn parse_strata_context_size(args: &[String]) -> anyhow::Result<NonZeroUsize> {
+    let mut context_size = None;
+    for (index, arg) in args.iter().enumerate() {
+        ensure!(
+            !arg.starts_with("--max-context="),
+            "Strata --max-context requires a separate value"
+        );
+        if arg == "--max-context" {
+            ensure!(context_size.is_none(), "duplicate Strata --max-context");
+            context_size = Some(
+                args.get(index + 1)
+                    .context("missing Strata --max-context value")?
+                    .parse::<NonZeroUsize>()
+                    .context("Strata --max-context must be a positive integer")?,
+            );
+        }
+    }
+    Ok(context_size.unwrap_or(NonZeroUsize::new(4096).unwrap()))
+}
+
 impl Config {
     pub fn load(path: &Path) -> anyhow::Result<Self> {
         let path = std::fs::canonicalize(path).context("locate configuration")?;
@@ -197,23 +217,7 @@ impl Config {
                             .unwrap_or(serde_json::Value::Null),
                     )
                     .context("Strata args must be an array of strings")?;
-                    let mut context_size = None;
-                    for (index, arg) in args.iter().enumerate() {
-                        ensure!(
-                            !arg.starts_with("--max-context="),
-                            "Strata --max-context requires a separate value"
-                        );
-                        if arg == "--max-context" {
-                            ensure!(context_size.is_none(), "duplicate Strata --max-context");
-                            context_size = Some(
-                                args.get(index + 1)
-                                    .context("missing Strata --max-context value")?
-                                    .parse::<NonZeroUsize>()
-                                    .context("Strata --max-context must be a positive integer")?,
-                            );
-                        }
-                    }
-                    let context_size = context_size.unwrap_or(NonZeroUsize::new(4096).unwrap());
+                    let context_size = parse_strata_context_size(&args)?;
                     let cwd = object
                         .get("cwd")
                         .map(|v| v.as_str().context("Strata cwd must be a path"))
@@ -364,6 +368,10 @@ config_file = "native.json"
         .unwrap();
         assert!(Config::parse(config, dir.path()).is_err());
         std::fs::write(&native, r#"{"exe":"engine","tokenizer":".","args":[]}"#).unwrap();
-        assert!(Config::parse(config, dir.path()).is_ok());
+        let parsed = Config::parse(config, dir.path()).unwrap();
+        assert_eq!(
+            parsed.models.values().next().unwrap().context_size().get(),
+            4096
+        );
     }
 }
