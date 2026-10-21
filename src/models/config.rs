@@ -190,13 +190,30 @@ impl Config {
                         );
                         object.insert(key.into(), path.to_string_lossy().into_owned().into());
                     }
-                    ensure!(
+                    let args: Vec<String> = serde_json::from_value(
                         object
                             .get("args")
-                            .and_then(|v| v.as_array())
-                            .is_some_and(|a| a.iter().all(|v| v.is_string())),
-                        "Strata args must be an array of strings"
-                    );
+                            .cloned()
+                            .unwrap_or(serde_json::Value::Null),
+                    )
+                    .context("Strata args must be an array of strings")?;
+                    let mut context_size = None;
+                    for (index, arg) in args.iter().enumerate() {
+                        ensure!(
+                            !arg.starts_with("--max-context="),
+                            "Strata --max-context requires a separate value"
+                        );
+                        if arg == "--max-context" {
+                            ensure!(context_size.is_none(), "duplicate Strata --max-context");
+                            context_size = Some(
+                                args.get(index + 1)
+                                    .context("missing Strata --max-context value")?
+                                    .parse::<NonZeroUsize>()
+                                    .context("Strata --max-context must be a positive integer")?,
+                            );
+                        }
+                    }
+                    let context_size = context_size.unwrap_or(NonZeroUsize::new(4096).unwrap());
                     let cwd = object
                         .get("cwd")
                         .map(|v| v.as_str().context("Strata cwd must be a path"))
@@ -217,7 +234,10 @@ impl Config {
                         object.get("api_key").is_none_or(|v| v.as_str() == Some("")),
                         "Strata backend must not require an API key"
                     );
-                    Backend::Strata { native }
+                    Backend::Strata {
+                        native,
+                        context_size,
+                    }
                 }
             };
             let executable = if model.executable.components().count() > 1 {
@@ -289,6 +309,36 @@ port = 18081
             );
         }
     }
+    #[test]
+    fn rejects_invalid_or_ambiguous_strata_context_before_startup() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("engine"), "fixture").unwrap();
+        let config = r#"[[models]]
+id = "strata"
+backend = "strata"
+executable = "strata-server"
+port = 18096
+config_file = "native.json"
+"#;
+        for args in [
+            serde_json::json!(["--max-context"]),
+            serde_json::json!(["--max-context", "0"]),
+            serde_json::json!(["--max-context", "-1"]),
+            serde_json::json!(["--max-context", "invalid"]),
+            serde_json::json!(["--max-context", "18446744073709551616"]),
+            serde_json::json!(["--max-context", "32768", "--max-context", "262144"]),
+            serde_json::json!(["--max-context=262144"]),
+        ] {
+            std::fs::write(
+                dir.path().join("native.json"),
+                serde_json::json!({"exe":"engine", "tokenizer":".", "args":args}).to_string(),
+            )
+            .unwrap();
+            let error = Config::parse(config, dir.path()).unwrap_err();
+            assert!(format!("{error:#}").contains("--max-context"), "{error:#}");
+        }
+    }
+
     #[test]
     fn native_strata_paths_are_checked_before_starting_any_process() {
         let dir = tempfile::tempdir().unwrap();

@@ -33,7 +33,7 @@ impl Server {
         fs::write(dir.path().join("fixture.gguf"), "fixture").unwrap();
         fs::write(
             dir.path().join("strata.json"),
-            json!({"exe":"fixture.gguf", "tokenizer":".", "args":[], "cwd":"."}).to_string(),
+            json!({"exe":"fixture.gguf", "tokenizer":".", "args":["--max-context", "262144", "--kv-resident", "32768"], "cwd":"."}).to_string(),
         )
         .unwrap();
         let listen = port();
@@ -209,7 +209,7 @@ async fn codex_catalog_lists_configured_models_without_loading_them() {
         );
     }
     assert_eq!(models[0]["context_window"], 32);
-    assert!(models[1].get("context_window").is_none());
+    assert_eq!(models[1]["context_window"], 262144);
     assert!(server.events().is_empty());
 }
 

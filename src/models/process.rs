@@ -238,7 +238,7 @@ impl Runtime for ProcessRuntime {
                         "--jinja",
                     ]);
             }
-            Backend::Strata { native } => {
+            Backend::Strata { native, .. } => {
                 let mut native = native.clone();
                 native["log"] = log_path.to_string_lossy().into_owned().into();
                 let config = self.state_dir.join(format!("{}.json", model.id.as_str()));

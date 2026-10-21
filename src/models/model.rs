@@ -45,6 +45,7 @@ pub(crate) enum Backend {
         extra_args: Vec<String>,
     },
     Strata {
+        context_size: NonZeroUsize,
         native: serde_json::Value,
     },
 }

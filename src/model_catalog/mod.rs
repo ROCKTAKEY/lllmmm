@@ -47,8 +47,7 @@ struct Entry {
     truncation_policy: TruncationPolicy,
     experimental_supported_tools: [&'static str; 0],
     input_modalities: [&'static str; 1],
-    #[serde(skip_serializing_if = "Option::is_none")]
-    context_window: Option<NonZeroUsize>,
+    context_window: NonZeroUsize,
 }
 
 #[derive(Serialize)]
@@ -77,8 +76,9 @@ impl From<&Model> for Entry {
             experimental_supported_tools: [],
             input_modalities: ["text"],
             context_window: match &model.backend {
-                Backend::LlamaCpp { context_size, .. } => Some(*context_size),
-                Backend::Strata { .. } => None,
+                Backend::LlamaCpp { context_size, .. } | Backend::Strata { context_size, .. } => {
+                    *context_size
+                }
             },
         }
     }
