@@ -288,6 +288,49 @@ async fn native_protocols_switch_reuse_stream_and_unload_process_groups() {
 }
 
 #[tokio::test]
+async fn zero_idle_timeout_keeps_model_loaded_and_allows_explicit_unload() {
+    let server = Server::start_with_idle("", 0).await;
+    assert_eq!(
+        server
+            .post("/admin/models/llama/load", json!({}))
+            .await
+            .status(),
+        200
+    );
+    sleep(Duration::from_secs(2)).await;
+    let snapshot: Value = server
+        .client
+        .get(format!("{}/admin/overview", server.url))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(snapshot["status"]["state"], "ready");
+    assert_eq!(snapshot["idle_timeout_secs"], 0);
+    let dashboard = server
+        .client
+        .get(format!("{}/admin/ui/dashboard", server.url))
+        .send()
+        .await
+        .unwrap()
+        .text()
+        .await
+        .unwrap();
+    assert!(dashboard.contains("無効"));
+    assert_eq!(
+        server
+            .post("/admin/models/strata/load", json!({}))
+            .await
+            .status(),
+        200
+    );
+    assert_eq!(server.post("/admin/unload", json!({})).await.status(), 200);
+    server.assert_processes_stopped();
+}
+
+#[tokio::test]
 async fn idle_unload_and_cancelled_stream_allow_next_request() {
     let server = Server::start("").await;
     let mut response = server

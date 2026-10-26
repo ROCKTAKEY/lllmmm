@@ -4,7 +4,7 @@
   <div class="summary">
     <div class="metric"><span class="metric-label">モデルの状態</span><span id="state" class="metric-value" data-live>{{ state.label }}</span></div>
     <div class="metric"><span class="metric-label">待機中の要求</span><span class="metric-value"><span id="waiting" data-live>{{ waiting }}</span><small> / {{ capacity }} 件</small></span></div>
-    <div class="metric"><span class="metric-label">自動アンロード</span><span class="metric-value">待機 {{ idle_seconds }} 秒</span></div>
+    <div class="metric"><span class="metric-label">自動アンロード</span><span class="metric-value">{% if idle_seconds == 0 %}無効{% else %}待機 {{ idle_seconds }} 秒{% endif %}</span></div>
   </div>
   <div class="active-panel"><div><p class="metric-label">現在のモデル</p><p id="active-model" class="model-name" data-live>{% if state.model.is_empty() %}—{% else %}{{ state.model }}{% endif %}</p><p class="muted">{{ state.description }}</p></div>
     <button id="unload" class="secondary" type="button" data-action data-available="{{ state.can_unload }}" {% if !state.can_unload %}disabled{% endif %}

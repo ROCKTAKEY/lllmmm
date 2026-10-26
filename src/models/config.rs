@@ -1,3 +1,4 @@
+use super::lifecycle::IdleTimeout;
 use super::model::{Backend, Model, ModelId};
 use anyhow::{Context, ensure};
 use serde::Deserialize;
@@ -15,7 +16,7 @@ use std::{
 pub struct Config {
     pub(crate) listen: SocketAddr,
     pub(crate) state_dir: PathBuf,
-    pub(crate) idle_timeout: Duration,
+    pub(crate) idle_timeout: IdleTimeout,
     pub(crate) startup_timeout: Duration,
     pub(crate) request_timeout: Duration,
     pub(crate) shutdown_timeout: Duration,
@@ -29,7 +30,7 @@ pub struct Config {
 struct RawConfig {
     listen: SocketAddr,
     state_dir: PathBuf,
-    idle_timeout_secs: NonZeroU32,
+    idle_timeout_secs: u32,
     startup_timeout_secs: NonZeroU32,
     request_timeout_secs: NonZeroU32,
     shutdown_timeout_secs: NonZeroU32,
@@ -42,7 +43,7 @@ impl Default for RawConfig {
         Self {
             listen: "127.0.0.1:8080".parse().unwrap(),
             state_dir: ".local".into(),
-            idle_timeout_secs: NonZeroU32::new(900).unwrap(),
+            idle_timeout_secs: 900,
             startup_timeout_secs: NonZeroU32::new(600).unwrap(),
             request_timeout_secs: NonZeroU32::new(1800).unwrap(),
             shutdown_timeout_secs: NonZeroU32::new(10).unwrap(),
@@ -287,7 +288,7 @@ impl Config {
         Ok(Self {
             listen: raw.listen,
             state_dir: resolve(base, &raw.state_dir),
-            idle_timeout: Duration::from_secs(raw.idle_timeout_secs.get().into()),
+            idle_timeout: IdleTimeout::from_seconds(raw.idle_timeout_secs),
             startup_timeout: Duration::from_secs(raw.startup_timeout_secs.get().into()),
             request_timeout: Duration::from_secs(raw.request_timeout_secs.get().into()),
             shutdown_timeout: Duration::from_secs(raw.shutdown_timeout_secs.get().into()),

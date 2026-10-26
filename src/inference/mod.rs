@@ -172,7 +172,7 @@ model_file="model.gguf"
         );
         let (manager, task) = Manager::spawn(
             Arc::new(UnusedRuntime),
-            std::time::Duration::from_secs(60),
+            crate::models::lifecycle::IdleTimeout::from_seconds(60),
             2,
         );
         let app = router(config, manager.clone()).unwrap();

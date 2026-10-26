@@ -4,6 +4,41 @@ use std::{sync::Arc, time::Duration};
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio_util::sync::CancellationToken;
 
+#[derive(Clone, Copy, Debug)]
+pub enum IdleTimeout {
+    Disabled,
+    After(std::num::NonZeroU32),
+}
+impl IdleTimeout {
+    pub fn from_seconds(seconds: u32) -> Self {
+        match std::num::NonZeroU32::new(seconds) {
+            Some(seconds) => Self::After(seconds),
+            None => Self::Disabled,
+        }
+    }
+    pub fn as_secs(self) -> u64 {
+        match self {
+            Self::Disabled => 0,
+            Self::After(seconds) => seconds.get().into(),
+        }
+    }
+    fn deadline(self) -> Option<tokio::time::Instant> {
+        match self {
+            Self::Disabled => None,
+            Self::After(seconds) => {
+                Some(tokio::time::Instant::now() + Duration::from_secs(seconds.get().into()))
+            }
+        }
+    }
+}
+
+async fn wait_for_idle(deadline: Option<tokio::time::Instant>) {
+    match deadline {
+        Some(deadline) => tokio::time::sleep_until(deadline).await,
+        None => std::future::pending().await,
+    }
+}
+
 #[async_trait]
 pub trait Runtime: Send + Sync + 'static {
     async fn start(&self, model: Arc<Model>) -> anyhow::Result<Box<dyn Session>>;
@@ -60,7 +95,7 @@ pub struct Manager {
 impl Manager {
     pub fn spawn(
         runtime: Arc<dyn Runtime>,
-        idle: Duration,
+        idle: IdleTimeout,
         capacity: usize,
     ) -> (Self, tokio::task::JoinHandle<()>) {
         let (commands, receiver) = mpsc::channel(capacity);
@@ -160,10 +195,10 @@ async fn run(
     mut commands: mpsc::Receiver<Command>,
     status: watch::Sender<Status>,
     shutdown: CancellationToken,
-    idle: Duration,
+    idle: IdleTimeout,
 ) {
     let mut resident: Option<Resident> = None;
-    let mut idle_deadline = tokio::time::Instant::now() + idle;
+    let mut idle_deadline = idle.deadline();
     let mut health_poll = tokio::time::interval(Duration::from_secs(1));
     health_poll.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     loop {
@@ -184,11 +219,11 @@ async fn run(
                 }
                 continue;
             }
-            _ = tokio::time::sleep_until(idle_deadline), if resident.is_some() => {
+            _ = wait_for_idle(idle_deadline), if resident.is_some() => {
                 if let Err(error) = unload(&mut resident, &status).await {
                     status.send_replace(Status::Failed { message: error.to_string() });
                 }
-                idle_deadline = tokio::time::Instant::now() + idle;
+                idle_deadline = idle.deadline();
                 continue;
             }
         };
@@ -235,7 +270,7 @@ async fn run(
                 let _ = reply.send(result);
             }
         }
-        idle_deadline = tokio::time::Instant::now() + idle;
+        idle_deadline = idle.deadline();
     }
     commands.close();
     if let Err(error) = unload(&mut resident, &status).await {
@@ -302,7 +337,7 @@ port = 18081
         let events = Arc::new(Mutex::new(vec![]));
         let (manager, task) = Manager::spawn(
             Arc::new(FakeRuntime(events.clone())),
-            Duration::from_secs(60),
+            IdleTimeout::from_seconds(60),
             2,
         );
         let a = manager.acquire(models[0].clone()).await.unwrap();
