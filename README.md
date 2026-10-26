@@ -4,7 +4,7 @@ llama.cppとStrataのローカルLLMを、1つの接続先から使うためのL
 
 ## 準備
 
-LinuxとGuix、および使用するモデルファイルを用意してください。起動スクリプトがビルド環境とllama.cppをGuixで用意します。Strataを使う場合は、Strata 0.1.39とモデルのpack・tokenizerなども準備してください。
+LinuxとGuix、および使用するモデルファイルを用意してください。起動スクリプトがビルド環境と、`runtime-manifest.scm` に指定した llama.cpp・Strata（`strata-hip`）をGuixで用意します。`strata-hip` を提供する [roquix](https://github.com/ROCKTAKEY/roquix) チャンネルが必要です。Strataを使う場合は、モデルのpack・tokenizerなども準備してください。
 
 バイナリを直接起動すると、設定ファイルは `$XDG_CONFIG_HOME/lllmmm/lllmmm.toml` から読み込みます。`XDG_CONFIG_HOME` が未設定・空・相対パスの場合は `~/.config/lllmmm/lllmmm.toml` を使います。
 
@@ -77,7 +77,9 @@ context_size = 32768
 
 GPUなどの追加設定は `extra_args`、環境変数は `models.env` に記述できます。[モデル設定例](examples/lllmmm.toml)を参照してください。パスは `~` や環境変数を展開済みの文字列で記述します。
 
-Strataでは `backend = "strata"` とし、`executable` に `strata-server`、`config_file` に推論設定のJSONを指定します。[Strata設定例](examples/strata/iq3_s.json)を利用環境に合わせて編集してください。
+Strataでは `backend = "strata"` とし、`executable` に `strata-server`、`config_file` に推論設定のJSONを指定します。推論設定の `exe` は `"strata"` とします。コマンド名は起動環境の `PATH` から解決するため、`run.sh` ではサーバーとエンジンの両方に manifest のパッケージを使用します。明示的なパスを指定する場合は絶対パス、またはJSONファイルからの相対パス（`./engine` など）を使います。[Strata設定例](examples/strata/iq3_s.json)を利用環境に合わせて編集してください。
+
+`guix pull` でチャンネルを更新した後に `run.sh` を実行すると、更新されたパッケージ定義が使われます。
 
 ## Codexから使う
 

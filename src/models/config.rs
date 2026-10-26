@@ -5,6 +5,7 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     net::SocketAddr,
     num::{NonZeroU16, NonZeroU32, NonZeroUsize},
+    os::unix::fs::PermissionsExt,
     path::{Path, PathBuf},
     sync::Arc,
     time::Duration,
@@ -198,7 +199,25 @@ impl Config {
                             .and_then(|v| v.as_str())
                             .filter(|s| !s.is_empty())
                             .with_context(|| format!("Strata {key} must be a path"))?;
-                        let path = resolve(file.parent().unwrap(), Path::new(value));
+                        let path = if key == "exe" && Path::new(value).components().count() == 1 {
+                            std::env::var_os("PATH")
+                                .into_iter()
+                                .flat_map(|paths| std::env::split_paths(&paths).collect::<Vec<_>>())
+                                .map(|directory| directory.join(value))
+                                .find(|candidate| {
+                                    candidate.metadata().is_ok_and(|metadata| {
+                                        metadata.is_file()
+                                            && metadata.permissions().mode() & 0o111 != 0
+                                    })
+                                })
+                                .map(std::path::absolute)
+                                .transpose()?
+                                .with_context(|| {
+                                    format!("Strata executable not found on PATH: {value}")
+                                })?
+                        } else {
+                            resolve(file.parent().unwrap(), Path::new(value))
+                        };
                         ensure!(
                             if key == "exe" {
                                 path.is_file()
@@ -335,7 +354,7 @@ config_file = "native.json"
         ] {
             std::fs::write(
                 dir.path().join("native.json"),
-                serde_json::json!({"exe":"engine", "tokenizer":".", "args":args}).to_string(),
+                serde_json::json!({"exe":"./engine", "tokenizer":".", "args":args}).to_string(),
             )
             .unwrap();
             let error = Config::parse(config, dir.path()).unwrap_err();
@@ -363,11 +382,11 @@ config_file = "native.json"
         std::fs::write(dir.path().join("engine"), "fixture").unwrap();
         std::fs::write(
             &native,
-            r#"{"exe":"engine","tokenizer":"missing-tokenizer","args":[]}"#,
+            r#"{"exe":"./engine","tokenizer":"missing-tokenizer","args":[]}"#,
         )
         .unwrap();
         assert!(Config::parse(config, dir.path()).is_err());
-        std::fs::write(&native, r#"{"exe":"engine","tokenizer":".","args":[]}"#).unwrap();
+        std::fs::write(&native, r#"{"exe":"./engine","tokenizer":".","args":[]}"#).unwrap();
         let parsed = Config::parse(config, dir.path()).unwrap();
         assert_eq!(
             parsed.models.values().next().unwrap().context_size().get(),

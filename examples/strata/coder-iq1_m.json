@@ -1,5 +1,5 @@
 {
-  "exe": "/opt/strata/engine/strata",
+  "exe": "strata",
   "args": [
     "--pack",
     "/home/you/models/strata/packs/coder-iq1_m",

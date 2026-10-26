@@ -33,7 +33,7 @@ impl Server {
         fs::write(dir.path().join("fixture.gguf"), "fixture").unwrap();
         fs::write(
             dir.path().join("strata.json"),
-            json!({"exe":"fixture.gguf", "tokenizer":".", "args":["--max-context", "262144", "--kv-resident", "32768"], "cwd":"."}).to_string(),
+            json!({"exe":"./fixture.gguf", "tokenizer":".", "args":["--max-context", "262144", "--kv-resident", "32768"], "cwd":"."}).to_string(),
         )
         .unwrap();
         let listen = port();

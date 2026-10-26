@@ -1,6 +1,6 @@
-;; Strata may be installed separately; its executable is selected in lllmmm.toml.
 (specifications->manifest
  (list "llama-cpp"
+       "strata-hip"
        "mesa"
        "vulkan-loader"
        "nss-certs"))
