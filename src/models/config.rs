@@ -83,6 +83,27 @@ fn resolve(base: &Path, path: &Path) -> PathBuf {
     }
 }
 
+fn resolve_strata_engine(base: &Path, executable: &Path) -> anyhow::Result<PathBuf> {
+    if executable.components().count() > 1 {
+        return Ok(resolve(base, executable));
+    }
+    let paths = std::env::var_os("PATH").context("PATH is unset; cannot locate Strata engine")?;
+    let path = std::env::split_paths(&paths)
+        .map(|directory| directory.join(executable))
+        .find(|candidate| {
+            candidate.metadata().is_ok_and(|metadata| {
+                metadata.is_file() && metadata.permissions().mode() & 0o111 != 0
+            })
+        })
+        .with_context(|| {
+            format!(
+                "Strata executable not found on PATH: {}",
+                executable.display()
+            )
+        })?;
+    Ok(std::path::absolute(path)?)
+}
+
 fn parse_strata_context_size(args: &[String]) -> anyhow::Result<NonZeroUsize> {
     let mut context_size = None;
     for (index, arg) in args.iter().enumerate() {
@@ -199,22 +220,8 @@ impl Config {
                             .and_then(|v| v.as_str())
                             .filter(|s| !s.is_empty())
                             .with_context(|| format!("Strata {key} must be a path"))?;
-                        let path = if key == "exe" && Path::new(value).components().count() == 1 {
-                            std::env::var_os("PATH")
-                                .into_iter()
-                                .flat_map(|paths| std::env::split_paths(&paths).collect::<Vec<_>>())
-                                .map(|directory| directory.join(value))
-                                .find(|candidate| {
-                                    candidate.metadata().is_ok_and(|metadata| {
-                                        metadata.is_file()
-                                            && metadata.permissions().mode() & 0o111 != 0
-                                    })
-                                })
-                                .map(std::path::absolute)
-                                .transpose()?
-                                .with_context(|| {
-                                    format!("Strata executable not found on PATH: {value}")
-                                })?
+                        let path = if key == "exe" {
+                            resolve_strata_engine(file.parent().unwrap(), Path::new(value))?
                         } else {
                             resolve(file.parent().unwrap(), Path::new(value))
                         };
