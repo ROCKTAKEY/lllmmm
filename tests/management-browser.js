@@ -21,10 +21,11 @@
       deadline = setTimeout(() => reject(new Error('Dashboard refresh timed out')), 5000);
       onSwap = (event) => {
         if (event.detail.target.id !== 'dashboard') return;
+        document.body.removeEventListener('htmx:afterSwap', onSwap);
         document.getElementById('unload').click();
         resolve();
       };
-      document.body.addEventListener('htmx:afterSwap', onSwap, { once: true });
+      document.body.addEventListener('htmx:afterSwap', onSwap);
       htmx.trigger(document.body, 'refresh');
     });
     if (requests !== 1) {

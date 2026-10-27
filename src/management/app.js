@@ -31,6 +31,9 @@ function actions() {
   });
 }
 function received() {
+  // htmx normally binds new controls during settling, after afterSwap fires.
+  // Bind them before actions() makes the refreshed controls available to users.
+  htmx.process(byId('dashboard'));
   if (!connected) addEvent('サーバーとの接続が回復しました。');
   connected = true;
   byId('connection').textContent = '接続中';
@@ -90,7 +93,6 @@ document.body.addEventListener('htmx:beforeSwap', (event) => {
 });
 document.body.addEventListener('htmx:afterSwap', (event) => {
   if (event.detail.target.id === 'dashboard') {
-    htmx.process(event.detail.target);
     document.querySelector('.table-scroll').scrollLeft = tableScroll;
     received();
   }
