@@ -90,6 +90,7 @@ document.body.addEventListener('htmx:beforeSwap', (event) => {
 });
 document.body.addEventListener('htmx:afterSwap', (event) => {
   if (event.detail.target.id === 'dashboard') {
+    htmx.process(event.detail.target);
     document.querySelector('.table-scroll').scrollLeft = tableScroll;
     received();
   }
