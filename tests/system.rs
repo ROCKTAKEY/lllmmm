@@ -29,6 +29,9 @@ impl Server {
         Self::start_with_idle(extra, 1).await
     }
     async fn start_with_idle(extra: &str, idle: u64) -> Self {
+        Self::start_with_settings(extra, idle, "").await
+    }
+    async fn start_with_settings(extra: &str, idle: u64, settings: &str) -> Self {
         let dir = tempfile::tempdir().unwrap();
         fs::write(dir.path().join("fixture.gguf"), "fixture").unwrap();
         fs::write(
@@ -57,6 +60,7 @@ impl Server {
         let config = format!(
             r#"
 listen = "127.0.0.1:{listen}"
+{settings}
 idle_timeout_secs = {idle}
 startup_timeout_secs = 2
 request_timeout_secs = 5
@@ -166,6 +170,30 @@ impl Drop for Server {
         let _ = self.child.kill();
         let _ = self.child.wait();
     }
+}
+
+#[tokio::test]
+async fn catalog_prefers_the_configured_default_without_loading_it() {
+    let server = Server::start_with_settings("", 0, "default_model = \"strata\"").await;
+    let catalog: Value = server
+        .client
+        .get(format!("{}/codex/models", server.url))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let models = catalog["models"].as_array().unwrap();
+    assert_eq!(models.len(), 2);
+    assert_eq!(models[0]["slug"], "strata");
+    assert!(models[0]["priority"].as_i64().unwrap() < models[1]["priority"].as_i64().unwrap());
+    assert!(server.events().is_empty());
+    let response = server
+        .post("/v1/responses", json!({"input": "hello"}))
+        .await;
+    assert_eq!(response.status(), 400);
+    assert!(server.events().is_empty());
 }
 
 #[tokio::test]

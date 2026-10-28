@@ -23,6 +23,7 @@ pub struct Config {
     pub(crate) queue_capacity: usize,
     pub(crate) max_body_bytes: usize,
     pub(crate) models: BTreeMap<ModelId, Arc<Model>>,
+    pub(crate) default_model: Option<Arc<Model>>,
 }
 
 #[derive(Deserialize)]
@@ -37,6 +38,7 @@ struct RawConfig {
     queue_capacity: NonZeroUsize,
     max_body_bytes: NonZeroUsize,
     models: Vec<RawModel>,
+    default_model: Option<String>,
 }
 impl Default for RawConfig {
     fn default() -> Self {
@@ -50,6 +52,7 @@ impl Default for RawConfig {
             queue_capacity: NonZeroUsize::new(32).unwrap(),
             max_body_bytes: NonZeroUsize::new(32 * 1024 * 1024).unwrap(),
             models: vec![],
+            default_model: None,
         }
     }
 }
@@ -285,6 +288,16 @@ impl Config {
             });
             ensure!(models.insert(id, spec).is_none(), "duplicate model id");
         }
+        let default_model = raw
+            .default_model
+            .map(|name| {
+                let id = ModelId::parse(&name).context("invalid default model")?;
+                models
+                    .get(&id)
+                    .cloned()
+                    .with_context(|| format!("default model is not configured: {name}"))
+            })
+            .transpose()?;
         Ok(Self {
             listen: raw.listen,
             state_dir: resolve(base, &raw.state_dir),
@@ -295,6 +308,7 @@ impl Config {
             queue_capacity: raw.queue_capacity.get(),
             max_body_bytes: raw.max_body_bytes.get(),
             models,
+            default_model,
         })
     }
 }
@@ -332,6 +346,9 @@ port = 18081
             format!("{valid}extra_args = [\"--host=0.0.0.0\"]"),
             format!("{valid}unknown_option = true"),
             format!("listen = \"0.0.0.0:8080\"\n{valid}"),
+            format!("default_model = \"unknown\"\n{valid}"),
+            format!("default_model = \"../escape\"\n{valid}"),
+            format!("default_model = \"\"\n{valid}"),
             format!("{valid}\n{valid}"),
         ] {
             assert!(

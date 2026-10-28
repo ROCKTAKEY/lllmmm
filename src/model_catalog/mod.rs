@@ -13,13 +13,23 @@ pub(crate) fn router(config: Arc<Config>) -> Router {
 }
 
 async fn catalog(State(config): State<Arc<Config>>) -> Json<Catalog> {
-    Json(Catalog {
-        models: config
-            .models
-            .values()
-            .map(|model| Entry::from(model.as_ref()))
-            .collect(),
-    })
+    let mut models: Vec<_> = config
+        .models
+        .values()
+        .map(|model| {
+            let mut entry = Entry::from(model.as_ref());
+            if config
+                .default_model
+                .as_ref()
+                .is_some_and(|default| default.id() == model.id())
+            {
+                entry.priority = -1;
+            }
+            entry
+        })
+        .collect();
+    models.sort_by_key(|entry| entry.priority);
+    Json(Catalog { models })
 }
 
 #[derive(Serialize)]
