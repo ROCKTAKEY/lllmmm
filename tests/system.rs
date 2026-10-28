@@ -659,8 +659,9 @@ async fn management_queue_waits_for_stream_and_remains_observable() {
 }
 
 #[tokio::test]
-async fn management_html_actions_report_results_and_reject_foreign_origins() {
+async fn management_html_actions_accept_https_origins_and_reject_foreign_origins() {
     let server = Server::start("").await;
+    let origin = server.url.replacen("http://", "https://", 1);
     let rejected = server
         .client
         .post(format!("{}/admin/ui/models/llama/load", server.url))
@@ -673,6 +674,8 @@ async fn management_html_actions_report_results_and_reject_foreign_origins() {
     let loaded = server
         .client
         .post(format!("{}/admin/ui/models/llama/load", server.url))
+        .header("origin", &origin)
+        .header("sec-fetch-site", "same-origin")
         .send()
         .await
         .unwrap();
@@ -706,6 +709,8 @@ async fn management_html_actions_report_results_and_reject_foreign_origins() {
     let unloaded = server
         .client
         .post(format!("{}/admin/ui/unload", server.url))
+        .header("origin", &origin)
+        .header("sec-fetch-site", "same-origin")
         .send()
         .await
         .unwrap();

@@ -104,7 +104,7 @@ fn origin_matches_host(headers: &HeaderMap) -> bool {
         .ok()
         .and_then(|s| s.parse::<Uri>().ok())
         .is_some_and(|uri| {
-            uri.scheme_str() == Some("http")
+            matches!(uri.scheme_str(), Some("http" | "https"))
                 && uri.authority().map(|a| a.as_str())
                     == headers.get(header::HOST).and_then(|h| h.to_str().ok())
         })
