@@ -100,6 +100,14 @@ codex --profile local-ornith
 
 `model_catalog_url` に `http://127.0.0.1:19100/codex/models` を指定すると、登録モデルをCodexのモデル選択画面から選べます。このURLは、Codexが選択候補と能力情報を読み込むための専用JSONを返します。設定項目の詳細は[Codexの設定リファレンス](https://developers.openai.com/codex/config-reference/#model_providersidmodel_catalog_url)を参照してください。
 
+初期選択の候補は、lllmmmの設定ファイルのトップレベル（最初の `[[models]]` より前）で指定できます。
+
+```toml
+default_model = "qwen3.8-flash-next-iq3_s"
+```
+
+指定した登録モデルをカタログの先頭に置き、最も高い優先順位で返します。省略時は全モデルを同じ優先順位で返し、未登録・不正なモデルIDは起動時に拒否します。Codexのモデル一覧では優先候補が `isDefault: true` になります。T3 Codeなどのクライアントが保存済みの選択や明示的なモデル設定を使っている場合は、そちらの選択が優先されることがあります。設定変更後はlllmmmを再起動し、クライアントのモデル一覧を再取得してください。この設定はカタログの選択候補にのみ適用され、起動時の自動ロードは行いません。推論APIでは引き続き `model` の指定が必要です。
+
 カタログはモデルをロードせずに生成します。llama.cppのコンテキスト長には `context_size` を使用します。Strataでは推論設定JSONの `args` にある `"--max-context", "262144"` のような指定からコンテキスト長を取得し、省略時はStrataの既定値である4,096トークンを使用します。`--kv-resident` はKVキャッシュの配置に関する値なので、コンテキスト長には使用しません。推論エンジンとCodexで上限を一致させるため、`--max-context` は値を別の要素として指定し、重複・値の欠落・正の整数でない値は設定読み込み時に拒否します。Codexプロファイルで `model_context_window` を明示している場合は、その値も推論設定と揃えてください。カタログではテキスト入力と通常のツール呼び出しを前提とし、推論レベルの選択肢・推論要約・verbosity・並列ツール呼び出しは宣言しません。
 
 詳細は[Codexのプロファイル設定](https://developers.openai.com/codex/config-advanced#profiles)を参照してください。

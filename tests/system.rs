@@ -230,7 +230,7 @@ async fn codex_catalog_lists_configured_models_without_loading_them() {
                 .as_str()
                 .is_some_and(|s| !s.is_empty())
         );
-        assert!(model["priority"].is_i64());
+        assert_eq!(model["priority"], 0);
         assert_eq!(
             model["truncation_policy"],
             json!({"mode":"bytes", "limit":10000})

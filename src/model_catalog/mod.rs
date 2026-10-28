@@ -17,15 +17,11 @@ async fn catalog(State(config): State<Arc<Config>>) -> Json<Catalog> {
         .models
         .values()
         .map(|model| {
-            let mut entry = Entry::from(model.as_ref());
-            if config
+            let preferred = config
                 .default_model
                 .as_ref()
-                .is_some_and(|default| default.id() == model.id())
-            {
-                entry.priority = -1;
-            }
-            entry
+                .is_some_and(|default| default.id() == model.id());
+            Entry::new(model, preferred)
         })
         .collect();
     models.sort_by_key(|entry| entry.priority);
@@ -66,8 +62,8 @@ enum TruncationPolicy {
     Bytes(usize),
 }
 
-impl From<&Model> for Entry {
-    fn from(model: &Model) -> Self {
+impl Entry {
+    fn new(model: &Model, preferred: bool) -> Self {
         Self {
             slug: model.id().clone(),
             display_name: model.id().clone(),
@@ -76,7 +72,7 @@ impl From<&Model> for Entry {
             shell_type: "shell_command",
             visibility: "list",
             supported_in_api: true,
-            priority: 0,
+            priority: if preferred { -1 } else { 0 },
             base_instructions: "You are a coding assistant. Use the available tools to inspect the project, make requested changes, and verify your work.",
             supports_reasoning_summaries: false,
             supports_reasoning_summary_parameter: false,

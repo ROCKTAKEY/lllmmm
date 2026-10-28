@@ -1,4 +1,5 @@
 listen = "127.0.0.1:8080"
+default_model = "qwen3.8-flash-next-iq3_s"
 state_dir = ".local"
 idle_timeout_secs = 900
 startup_timeout_secs = 600
