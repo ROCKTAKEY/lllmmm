@@ -34,7 +34,7 @@ pub(crate) fn router(config: Arc<Config>, manager: Manager) -> Router {
         .route("/admin/unload", post(unload))
         .route("/admin/ui/models/{model}/load", post(view::load))
         .route("/admin/ui/unload", post(view::unload))
-        .route_layer(middleware::from_fn(same_origin));
+        .route_layer(middleware::from_fn(protect_management_actions));
     Router::new()
         .route("/", get(view::page))
         .route("/admin/ui/dashboard", get(view::fragment))
@@ -78,7 +78,7 @@ async fn no_cache(request: Request, next: Next) -> Response {
         .insert(header::CACHE_CONTROL, "no-store".parse().unwrap());
     response
 }
-async fn same_origin(request: Request, next: Next) -> Result<Response, ApiError> {
+async fn protect_management_actions(request: Request, next: Next) -> Result<Response, ApiError> {
     let headers = request.headers();
     // A browser on another site can POST to loopback even without CORS permission.
     // Only the management page's own origin may initiate browser mutations.
@@ -104,6 +104,7 @@ fn origin_matches_host(headers: &HeaderMap) -> bool {
         .ok()
         .and_then(|s| s.parse::<Uri>().ok())
         .is_some_and(|uri| {
+            // TLS can terminate at a proxy while the original Host is preserved.
             matches!(uri.scheme_str(), Some("http" | "https"))
                 && uri.authority().map(|a| a.as_str())
                     == headers.get(header::HOST).and_then(|h| h.to_str().ok())

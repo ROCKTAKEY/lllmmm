@@ -662,14 +662,24 @@ async fn management_queue_waits_for_stream_and_remains_observable() {
 async fn management_html_actions_accept_https_origins_and_reject_foreign_origins() {
     let server = Server::start("").await;
     let origin = server.url.replacen("http://", "https://", 1);
-    let rejected = server
-        .client
-        .post(format!("{}/admin/ui/models/llama/load", server.url))
-        .header("origin", "https://unrelated.example")
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(rejected.status(), 403);
+    for (rejected_origin, site) in [
+        ("https://unrelated.example".to_owned(), "same-origin"),
+        ("https://127.0.0.1:0".to_owned(), "same-origin"),
+        (origin.replacen("https://", "ftp://", 1), "same-origin"),
+        ("null".to_owned(), "same-origin"),
+        (origin.clone(), "cross-site"),
+        (origin.clone(), "same-site"),
+    ] {
+        let rejected = server
+            .client
+            .post(format!("{}/admin/ui/models/llama/load", server.url))
+            .header("origin", &rejected_origin)
+            .header("sec-fetch-site", site)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(rejected.status(), 403, "{rejected_origin}, {site}");
+    }
     assert!(server.events().is_empty());
     let loaded = server
         .client
