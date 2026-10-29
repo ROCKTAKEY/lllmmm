@@ -9,7 +9,7 @@ pub(crate) struct SessionCache {
     timeout: Duration,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 enum Operation {
     Save,
     Restore,
@@ -76,6 +76,13 @@ impl SessionCache {
                     "session_cache requires --prompt-cache greater than zero"
                 );
             }
+            if flag == "--gpus" {
+                let value = inline.or_else(|| args.get(index + 1).map(String::as_str));
+                ensure!(
+                    value.and_then(|v| v.parse::<u32>().ok()).is_some(),
+                    "session_cache requires a single GPU"
+                );
+            }
         }
         Ok(Self { directory, timeout })
     }
@@ -129,6 +136,14 @@ impl SessionCache {
             .json()
             .await
             .context("read Strata session response")?;
+        if operation == Operation::Save
+            && status == reqwest::StatusCode::BAD_REQUEST
+            && body["error"]["kind"] == "invalid"
+            && body["error"]["message"] == "no complete session to save"
+        {
+            tracing::info!("Strata has no complete session to save; keeping any existing file");
+            return Ok(());
+        }
         ensure!(
             status.is_success(),
             "Strata session {action} failed ({status}): {body}"
@@ -147,5 +162,35 @@ impl SessionCache {
         );
         tracing::info!(action, path = %self.directory.join("session.bin").display(), "Strata session transferred");
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn refuses_configurations_that_cannot_save_a_single_strata_session() {
+        for (native, args) in [
+            (json!({"parallel":2}), vec![]),
+            (json!({"slot_save_path":"elsewhere"}), vec![]),
+            (json!({}), vec!["--prompt-cache", "0"]),
+            (json!({}), vec!["--batch=2"]),
+            (json!({}), vec!["--layer-split", "24"]),
+            (json!({}), vec!["--peer-device", "1"]),
+            (json!({}), vec!["--gpus", "0,1"]),
+        ] {
+            let args: Vec<String> = args.into_iter().map(str::to_owned).collect();
+            assert!(
+                SessionCache::parse(
+                    "/state/sessions/model".into(),
+                    Duration::from_secs(120),
+                    native.as_object().unwrap(),
+                    &args
+                )
+                .is_err(),
+                "accepted {native} {args:?}"
+            );
+        }
     }
 }

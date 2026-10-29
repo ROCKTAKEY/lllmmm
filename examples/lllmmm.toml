@@ -44,6 +44,7 @@ backend = "strata"
 executable = "strata-server"
 port = 18096
 config_file = "strata/iq3_s.json"
+session_cache = { timeout_secs = 120 }
 
 [[models]]
 id = "qwen3.8-flash-next-iq2_xs"
@@ -51,6 +52,7 @@ backend = "strata"
 executable = "strata-server"
 port = 18095
 config_file = "strata/iq2_xs.json"
+session_cache = { timeout_secs = 120 }
 
 [[models]]
 id = "qwen3.8-flash-next-coder-iq1_m"
@@ -58,3 +60,4 @@ backend = "strata"
 executable = "strata-server"
 port = 18097
 config_file = "strata/coder-iq1_m.json"
+session_cache = { timeout_secs = 120 }

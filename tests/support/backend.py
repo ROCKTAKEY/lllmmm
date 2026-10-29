@@ -69,6 +69,9 @@ class Handler(BaseHTTPRequestHandler):
                     return
                 time.sleep(float(mode))
             if action == 'save':
+                if cached_input is None:
+                    self.send_json({'error': {'kind': 'invalid', 'message': 'no complete session to save'}}, 400)
+                    return
                 target.write_text(json.dumps(cached_input))
                 self.send_json({'id_slot': 0, 'filename': target.name, 'n_saved': 1, 'n_written': target.stat().st_size})
             else:

@@ -915,3 +915,25 @@ async fn sigint_during_model_switch_finishes_the_existing_session_save() {
     );
     server.assert_processes_stopped();
 }
+
+#[tokio::test]
+async fn strata_session_cache_allows_unloading_before_any_inference() {
+    let server =
+        Server::start_with_session("", 0, "", "session_cache = { timeout_secs = 1 }").await;
+    assert_eq!(
+        server
+            .post("/admin/models/strata/load", json!({}))
+            .await
+            .status(),
+        200
+    );
+    assert_eq!(server.post("/admin/unload", json!({})).await.status(), 200);
+    assert!(
+        !server
+            .dir
+            .path()
+            .join(".local/sessions/strata/session.bin")
+            .exists()
+    );
+    server.assert_processes_stopped();
+}
