@@ -59,6 +59,8 @@ class Handler(BaseHTTPRequestHandler):
             directory = Path(native['slot_save_path'])
             directory.mkdir(parents=True, exist_ok=True)
             target = directory / body['filename']
+            with open(Path(native['cwd']) / 'session-actions', 'a') as events:
+                events.write(action + '\n')
             marker = Path(native['cwd']) / ('session-' + action)
             if marker.exists():
                 mode = marker.read_text()

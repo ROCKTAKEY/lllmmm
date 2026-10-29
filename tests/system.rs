@@ -779,7 +779,10 @@ async fn strata_session_survives_unload_and_sigint_restart() {
     let saved = server.dir.path().join(".local/sessions/strata/session.bin");
     assert_eq!(fs::read_to_string(&saved).unwrap(), "\"long conversation\"");
     let response: Value = server
-        .post("/v1/responses", request)
+        .post(
+            "/v1/responses",
+            json!({"model":"strata", "input":"second conversation"}),
+        )
         .await
         .json()
         .await
@@ -795,6 +798,10 @@ async fn strata_session_survives_unload_and_sigint_restart() {
     .await
     .unwrap();
     server.assert_processes_stopped();
+    assert_eq!(
+        fs::read_to_string(&saved).unwrap(),
+        "\"second conversation\""
+    );
     server.child = Command::new(env!("CARGO_BIN_EXE_lllmmm"))
         .arg("--config")
         .arg(server.dir.path().join("lllmmm.toml"))
@@ -824,7 +831,7 @@ async fn strata_session_survives_unload_and_sigint_restart() {
         .json()
         .await
         .unwrap();
-    assert_eq!(response["cached_input"], "long conversation");
+    assert_eq!(response["cached_input"], "second conversation");
 }
 
 #[tokio::test]
@@ -853,4 +860,58 @@ async fn strata_session_failures_preserve_saved_state_and_release_processes() {
     assert_eq!(server.post("/v1/responses", request).await.status(), 503);
     server.assert_processes_stopped();
     assert_eq!(fs::read_to_string(&saved).unwrap(), "corrupt session");
+}
+
+#[tokio::test]
+async fn sigint_during_model_switch_finishes_the_existing_session_save() {
+    let mut server =
+        Server::start_with_session("", 0, "", "session_cache = { timeout_secs = 3 }").await;
+    assert_eq!(
+        server
+            .post(
+                "/v1/responses",
+                json!({"model":"strata", "input":"keep this"})
+            )
+            .await
+            .status(),
+        200
+    );
+    fs::write(server.dir.path().join("session-save"), "0.5").unwrap();
+    let client = server.client.clone();
+    let url = format!("{}/v1/responses", server.url);
+    let switch = tokio::spawn(async move {
+        client
+            .post(url)
+            .json(&json!({"model":"llama", "input":"switch"}))
+            .send()
+            .await
+    });
+    let actions = server.dir.path().join("session-actions");
+    timeout(Duration::from_secs(3), async {
+        while !actions.exists() {
+            sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    kill(Pid::from_raw(server.child.id() as i32), Signal::SIGINT).unwrap();
+    timeout(Duration::from_secs(6), async {
+        while server.child.try_wait().unwrap().is_none() {
+            sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .unwrap();
+    let _ = switch.await;
+    assert_eq!(fs::read_to_string(actions).unwrap(), "save\n");
+    assert_eq!(
+        fs::read_to_string(server.dir.path().join(".local/sessions/strata/session.bin")).unwrap(),
+        "\"keep this\""
+    );
+    assert_eq!(
+        server.events().len(),
+        1,
+        "shutdown must not start the next model"
+    );
+    server.assert_processes_stopped();
 }

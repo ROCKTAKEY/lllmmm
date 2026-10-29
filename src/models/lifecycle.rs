@@ -171,21 +171,28 @@ async fn prepare(
     resident: &mut Option<Resident>,
     model: Arc<Model>,
     status: &watch::Sender<Status>,
+    shutdown: &CancellationToken,
 ) -> Result<String, LifecycleError> {
     if resident
         .as_mut()
         .is_some_and(|r| r.model.id != model.id || !r.session.is_alive())
     {
+        // A session save must finish before the old engine can be stopped. Cancelling
+        // this transfer leaves its completion unknown and can start a second save.
         unload(resident, status).await?;
+    }
+    if shutdown.is_cancelled() {
+        return Err(LifecycleError::Stopped);
     }
     if resident.is_none() {
         status.send_replace(Status::Loading {
             model: model.id.as_str().into(),
         });
-        let session = runtime
-            .start(model.clone())
-            .await
-            .map_err(|e| LifecycleError::Backend(format!("{e:#}")))?;
+        let session = tokio::select! {
+            biased;
+            _ = shutdown.cancelled() => return Err(LifecycleError::Stopped),
+            session = runtime.start(model.clone()) => session.map_err(|e| LifecycleError::Backend(format!("{e:#}")))?,
+        };
         *resident = Some(Resident { model, session });
     }
     Ok(resident.as_ref().unwrap().session.endpoint().to_owned())
@@ -232,11 +239,14 @@ async fn run(
                 if reply.is_closed() {
                     continue;
                 }
-                let endpoint = tokio::select! {
-                    biased;
-                    _ = shutdown.cancelled() => break,
-                    result = prepare(runtime.as_ref(), &mut resident, model.clone(), &status) => result,
-                };
+                let endpoint = prepare(
+                    runtime.as_ref(),
+                    &mut resident,
+                    model.clone(),
+                    &status,
+                    &shutdown,
+                )
+                .await;
                 match endpoint {
                     Ok(endpoint) => {
                         let (release, released) = oneshot::channel();
