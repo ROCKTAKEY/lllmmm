@@ -9,6 +9,26 @@ pub(crate) struct SessionCache {
     timeout: Duration,
 }
 
+#[derive(Clone, Copy)]
+enum Operation {
+    Save,
+    Restore,
+}
+impl Operation {
+    fn action(self) -> &'static str {
+        match self {
+            Self::Save => "save",
+            Self::Restore => "restore",
+        }
+    }
+    fn token_field(self) -> &'static str {
+        match self {
+            Self::Save => "n_saved",
+            Self::Restore => "n_restored",
+        }
+    }
+}
+
 impl SessionCache {
     pub(crate) fn parse(
         directory: PathBuf,
@@ -77,7 +97,7 @@ impl SessionCache {
         {
             return Ok(());
         }
-        self.transfer(client, endpoint, "restore").await
+        self.transfer(client, endpoint, Operation::Restore).await
     }
 
     pub(crate) async fn save(
@@ -85,15 +105,16 @@ impl SessionCache {
         client: &reqwest::Client,
         endpoint: &str,
     ) -> anyhow::Result<()> {
-        self.transfer(client, endpoint, "save").await
+        self.transfer(client, endpoint, Operation::Save).await
     }
 
     async fn transfer(
         &self,
         client: &reqwest::Client,
         endpoint: &str,
-        action: &str,
+        operation: Operation,
     ) -> anyhow::Result<()> {
+        let action = operation.action();
         // Strata serializes session operations with generation and publishes saves atomically.
         // https://github.com/Niko1221/Strata/blob/main/docs/DETAILS.md#session-files-disk
         let response = client
@@ -116,19 +137,12 @@ impl SessionCache {
         struct Receipt {
             id_slot: u32,
             filename: String,
-            n_saved: Option<u64>,
-            n_restored: Option<u64>,
         }
+        let tokens = body[operation.token_field()].as_u64();
         let receipt: Receipt =
             serde_json::from_value(body).context("invalid Strata session receipt")?;
         ensure!(
-            receipt.id_slot == 0
-                && receipt.filename == "session.bin"
-                && if action == "save" {
-                    receipt.n_saved.is_some()
-                } else {
-                    receipt.n_restored.is_some()
-                },
+            receipt.id_slot == 0 && receipt.filename == "session.bin" && tokens.is_some(),
             "invalid Strata session {action} receipt"
         );
         tracing::info!(action, path = %self.directory.join("session.bin").display(), "Strata session transferred");
