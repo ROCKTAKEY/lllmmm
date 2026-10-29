@@ -32,6 +32,9 @@ impl Server {
         Self::start_with_settings(extra, idle, "").await
     }
     async fn start_with_settings(extra: &str, idle: u64, settings: &str) -> Self {
+        Self::start_with_session(extra, idle, settings, "").await
+    }
+    async fn start_with_session(extra: &str, idle: u64, settings: &str, session: &str) -> Self {
         let dir = tempfile::tempdir().unwrap();
         fs::write(dir.path().join("fixture.gguf"), "fixture").unwrap();
         fs::write(
@@ -82,6 +85,7 @@ backend = "strata"
 executable = "{executable}"
 port = {backend}
 config_file = "strata.json"
+{session}
 [models.env]
 EVENTS = "{events}"
 "#,
@@ -760,4 +764,93 @@ async fn management_html_actions_accept_https_origins_and_reject_foreign_origins
             .unwrap()
             .contains("アンロードが完了しました")
     );
+}
+
+#[tokio::test]
+async fn strata_session_survives_unload_and_sigint_restart() {
+    let mut server =
+        Server::start_with_session("", 0, "", "session_cache = { timeout_secs = 3 }").await;
+    let request = json!({"model":"strata", "input":"long conversation"});
+    assert_eq!(
+        server.post("/v1/responses", request.clone()).await.status(),
+        200
+    );
+    assert_eq!(server.post("/admin/unload", json!({})).await.status(), 200);
+    let saved = server.dir.path().join(".local/sessions/strata/session.bin");
+    assert_eq!(fs::read_to_string(&saved).unwrap(), "\"long conversation\"");
+    let response: Value = server
+        .post("/v1/responses", request)
+        .await
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(response["cached_input"], "long conversation");
+    fs::write(server.dir.path().join("session-save"), "0.3").unwrap();
+    kill(Pid::from_raw(server.child.id() as i32), Signal::SIGINT).unwrap();
+    timeout(Duration::from_secs(6), async {
+        while server.child.try_wait().unwrap().is_none() {
+            sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .unwrap();
+    server.assert_processes_stopped();
+    server.child = Command::new(env!("CARGO_BIN_EXE_lllmmm"))
+        .arg("--config")
+        .arg(server.dir.path().join("lllmmm.toml"))
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    timeout(Duration::from_secs(5), async {
+        while server
+            .client
+            .get(format!("{}/health", server.url))
+            .send()
+            .await
+            .is_err()
+        {
+            sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .unwrap();
+    let response: Value = server
+        .post(
+            "/v1/responses",
+            json!({"model":"strata", "input":"continued"}),
+        )
+        .await
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(response["cached_input"], "long conversation");
+}
+
+#[tokio::test]
+async fn strata_session_failures_preserve_saved_state_and_release_processes() {
+    let server =
+        Server::start_with_session("", 0, "", "session_cache = { timeout_secs = 1 }").await;
+    let request = json!({"model":"strata", "input":"saved"});
+    assert_eq!(
+        server.post("/v1/responses", request.clone()).await.status(),
+        200
+    );
+    assert_eq!(server.post("/admin/unload", json!({})).await.status(), 200);
+    let saved = server.dir.path().join(".local/sessions/strata/session.bin");
+    let original = fs::read(&saved).unwrap();
+    for failure in ["fail", "2"] {
+        assert_eq!(
+            server.post("/v1/responses", request.clone()).await.status(),
+            200
+        );
+        fs::write(server.dir.path().join("session-save"), failure).unwrap();
+        assert_eq!(server.post("/admin/unload", json!({})).await.status(), 503);
+        server.assert_processes_stopped();
+        assert_eq!(fs::read(&saved).unwrap(), original);
+    }
+    fs::write(&saved, "corrupt session").unwrap();
+    assert_eq!(server.post("/v1/responses", request).await.status(), 503);
+    server.assert_processes_stopped();
+    assert_eq!(fs::read_to_string(&saved).unwrap(), "corrupt session");
 }

@@ -1,5 +1,6 @@
 use super::lifecycle::IdleTimeout;
 use super::model::{Backend, Model, ModelId};
+use super::session_cache::SessionCache;
 use anyhow::{Context, ensure};
 use serde::Deserialize;
 use std::{
@@ -77,7 +78,13 @@ enum RawBackend {
     },
     Strata {
         config_file: PathBuf,
+        session_cache: Option<RawSessionCache>,
     },
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawSessionCache {
+    timeout_secs: NonZeroU32,
 }
 fn resolve(base: &Path, path: &Path) -> PathBuf {
     if path.is_absolute() {
@@ -209,7 +216,10 @@ impl Config {
                         extra_args,
                     }
                 }
-                RawBackend::Strata { config_file } => {
+                RawBackend::Strata {
+                    config_file,
+                    session_cache,
+                } => {
                     let file = resolve(base, &config_file);
                     let mut native: serde_json::Value = serde_json::from_str(
                         &std::fs::read_to_string(&file)
@@ -248,6 +258,18 @@ impl Config {
                     )
                     .context("Strata args must be an array of strings")?;
                     let context_size = parse_strata_context_size(&args)?;
+                    let session_cache = session_cache
+                        .map(|settings| {
+                            SessionCache::parse(
+                                resolve(base, &raw.state_dir)
+                                    .join("sessions")
+                                    .join(id.as_str()),
+                                Duration::from_secs(settings.timeout_secs.get().into()),
+                                object,
+                                &args,
+                            )
+                        })
+                        .transpose()?;
                     let cwd = object
                         .get("cwd")
                         .map(|v| v.as_str().context("Strata cwd must be a path"))
@@ -271,6 +293,7 @@ impl Config {
                     Backend::Strata {
                         native,
                         context_size,
+                        session_cache,
                     }
                 }
             };

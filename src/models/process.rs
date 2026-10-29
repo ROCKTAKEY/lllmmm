@@ -55,6 +55,8 @@ struct Ready;
 struct Process<State> {
     group: ProcessGroup,
     endpoint: String,
+    session_cache: Option<super::session_cache::SessionCache>,
+    client: reqwest::Client,
     _state: PhantomData<State>,
 }
 struct ProcessGroup {
@@ -186,9 +188,20 @@ impl Process<Starting> {
                 .context("cleanup after failed startup")?;
             return Err(error);
         }
+        if let Some(cache) = &self.session_cache
+            && let Err(error) = cache.restore(&self.client, &self.endpoint).await
+        {
+            self.group
+                .stop()
+                .await
+                .context("cleanup after failed session restore")?;
+            return Err(error);
+        }
         Ok(Process {
             group: self.group,
             endpoint: self.endpoint,
+            session_cache: self.session_cache,
+            client: self.client,
             _state: PhantomData,
         })
     }
@@ -238,8 +251,15 @@ impl Runtime for ProcessRuntime {
                         "--jinja",
                     ]);
             }
-            Backend::Strata { native, .. } => {
+            Backend::Strata {
+                native,
+                session_cache,
+                ..
+            } => {
                 let mut native = native.clone();
+                if let Some(cache) = session_cache {
+                    cache.configure(&mut native);
+                }
                 native["log"] = log_path.to_string_lossy().into_owned().into();
                 let config = self.state_dir.join(format!("{}.json", model.id.as_str()));
                 std::fs::write(&config, serde_json::to_vec_pretty(&native)?)?;
@@ -266,6 +286,11 @@ impl Runtime for ProcessRuntime {
                 owned: true,
             },
             endpoint: format!("http://127.0.0.1:{}", model.port),
+            session_cache: match &model.backend {
+                Backend::Strata { session_cache, .. } => session_cache.clone(),
+                _ => None,
+            },
+            client: self.health.clone(),
             _state: PhantomData,
         };
         let started = Instant::now();
@@ -292,6 +317,16 @@ impl Session for Process<Ready> {
         matches!(self.group.child.try_wait(), Ok(None))
     }
     async fn stop(&mut self) -> anyhow::Result<()> {
-        self.group.stop().await
+        let saved = if self.group.owned && self.is_alive() {
+            if let Some(cache) = &self.session_cache {
+                cache.save(&self.client, &self.endpoint).await
+            } else {
+                Ok(())
+            }
+        } else {
+            Ok(())
+        };
+        self.group.stop().await?;
+        saved
     }
 }

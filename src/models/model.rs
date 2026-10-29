@@ -47,6 +47,7 @@ pub(crate) enum Backend {
     Strata {
         context_size: NonZeroUsize,
         native: serde_json::Value,
+        session_cache: Option<super::session_cache::SessionCache>,
     },
 }
 

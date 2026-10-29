@@ -7,6 +7,7 @@ import signal
 import subprocess
 import sys
 import time
+from pathlib import Path
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 parser = argparse.ArgumentParser()
@@ -29,6 +30,7 @@ child = subprocess.Popen([sys.executable, '-c', 'import signal,time; signal.sign
 with open(os.environ['EVENTS'], 'a') as events:
     events.write(json.dumps({'model': model, 'pid': os.getpid(), 'child': child.pid}) + '\n')
 started = time.monotonic()
+cached_input = None
 
 class Handler(BaseHTTPRequestHandler):
     protocol_version = 'HTTP/1.1'
@@ -50,7 +52,33 @@ class Handler(BaseHTTPRequestHandler):
         else:
             self.send_json({}, 404)
     def do_POST(self):
+        global cached_input
         body = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
+        if self.path.startswith('/slots/0?action='):
+            action = self.path.split('=')[1]
+            directory = Path(native['slot_save_path'])
+            directory.mkdir(parents=True, exist_ok=True)
+            target = directory / body['filename']
+            marker = Path(native['cwd']) / ('session-' + action)
+            if marker.exists():
+                mode = marker.read_text()
+                if mode == 'fail':
+                    self.send_json({'error': {'message': 'session failure'}}, 500)
+                    return
+                time.sleep(float(mode))
+            if action == 'save':
+                target.write_text(json.dumps(cached_input))
+                self.send_json({'id_slot': 0, 'filename': target.name, 'n_saved': 1, 'n_written': target.stat().st_size})
+            else:
+                try:
+                    cached_input = json.loads(target.read_text())
+                except (ValueError, FileNotFoundError):
+                    self.send_json({'error': {'message': 'invalid session'}}, 400)
+                    return
+                self.send_json({'id_slot': 0, 'filename': target.name, 'n_restored': 1, 'n_read': target.stat().st_size})
+            return
+        previous_input = cached_input
+        cached_input = body.get('input')
         if body.get('input') == 'error':
             self.send_json({'error': {'code': 'context_length_exceeded'}}, 400)
         elif body.get('stream'):
@@ -65,6 +93,6 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.flush()
             self.close_connection = True
         else:
-            self.send_json({'model': model, 'path': self.path, 'request': body})
+            self.send_json({'model': model, 'path': self.path, 'request': body, 'cached_input': previous_input})
 
 ThreadingHTTPServer(('127.0.0.1', args.port), Handler).serve_forever()
