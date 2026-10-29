@@ -67,8 +67,8 @@ impl SessionCache {
                 ),
                 "session_cache does not support Strata argument {flag}"
             );
+            let value = inline.or_else(|| args.get(index + 1).map(String::as_str));
             if flag == "--prompt-cache" {
-                let value = inline.or_else(|| args.get(index + 1).map(String::as_str));
                 ensure!(
                     value
                         .and_then(|v| v.parse::<std::num::NonZeroUsize>().ok())
@@ -77,7 +77,6 @@ impl SessionCache {
                 );
             }
             if flag == "--gpus" {
-                let value = inline.or_else(|| args.get(index + 1).map(String::as_str));
                 ensure!(
                     value.and_then(|v| v.parse::<u32>().ok()).is_some(),
                     "session_cache requires a single GPU"
